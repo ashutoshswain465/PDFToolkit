@@ -1,54 +1,148 @@
-from PyPDF2 import PdfMerger, PdfReader
+from PyPDF2 import PdfReader, PdfWriter
 import os
 
-print("PDF Merger")
-print("==========\n")
+print("PDF Toolkit")
+print("===========\n")
 
-folder_path = input("Enter folder path (or press Enter for current directory): ").strip()
 
-if not folder_path:
-    folder_path = "."
+def split_pdf():
+    pdf_file = input("Enter PDF file: ")
 
-if not os.path.exists(folder_path):
-    print(f"Error: Folder '{folder_path}' not found!")
-    exit()
-
-pdf_files = []
-for file in os.listdir(folder_path):
-    if file.lower().endswith('.pdf'):
-        pdf_files.append(os.path.join(folder_path, file))
-
-pdf_files.sort()
-
-if not pdf_files:
-    print(f"No PDF files found in '{folder_path}'")
-    exit()
-
-print(f"\nFound {len(pdf_files)} PDF files:")
-for i, pdf in enumerate(pdf_files, 1):
-    print(f"{i}. {os.path.basename(pdf)}")
-
-output_file = input("\nOutput filename: ").strip()
-
-if not output_file.endswith('.pdf'):
-    output_file += '.pdf'
-
-print("\nMerging PDFs...")
-
-merger = PdfMerger()
-total_pages = 0
-
-for pdf_file in pdf_files:
-    merger.append(pdf_file)
+    if not os.path.exists(pdf_file):
+        print("Error: File not found!")
+        return
 
     reader = PdfReader(pdf_file)
-    page_count = len(reader.pages)
-    total_pages += page_count
+    total_pages = len(reader.pages)
 
-    print(f"✓ Added {os.path.basename(pdf_file)} ({page_count} pages)")
+    print(f"\nSplitting PDF into pages...")
 
-merger.write(output_file)
-merger.close()
+    for page_num in range(total_pages):
+        writer = PdfWriter()
+        writer.add_page(reader.pages[page_num])
 
-print(f"\nSuccessfully merged {len(pdf_files)} PDFs into {output_file}")
-print(f"Total pages: {total_pages}")
+        output_file = f"page_{page_num + 1:03d}.pdf"
+        with open(output_file, 'wb') as f:
+            writer.write(f)
+
+        print(f"✓ Created {output_file}")
+
+    print(f"\nSuccessfully split into {total_pages} pages!")
+
+
+def extract_pages():
+    pdf_file = input("Enter PDF file: ")
+
+    if not os.path.exists(pdf_file):
+        print("Error: File not found!")
+        return
+
+    start_page = int(input("Start page: "))
+    end_page = int(input("End page: "))
+    output_file = input("Output filename: ")
+
+    if not output_file.endswith('.pdf'):
+        output_file += '.pdf'
+
+    reader = PdfReader(pdf_file)
+    writer = PdfWriter()
+
+    print(f"\nExtracting pages {start_page}-{end_page}...")
+
+    for page_num in range(start_page - 1, end_page):
+        if page_num < len(reader.pages):
+            writer.add_page(reader.pages[page_num])
+
+    with open(output_file, 'wb') as f:
+        writer.write(f)
+
+    pages_extracted = end_page - start_page + 1
+    print(f"✓ Extracted {pages_extracted} pages to {output_file}")
+
+
+def rotate_pages():
+    pdf_file = input("Enter PDF file: ")
+
+    if not os.path.exists(pdf_file):
+        print("Error: File not found!")
+        return
+
+    angle = int(input("Rotation angle (90, 180, 270): "))
+    output_file = input("Output filename: ")
+
+    if not output_file.endswith('.pdf'):
+        output_file += '.pdf'
+
+    reader = PdfReader(pdf_file)
+    writer = PdfWriter()
+
+    print(f"\nRotating all pages by {angle} degrees...")
+
+    for page in reader.pages:
+        page.rotate(angle)
+        writer.add_page(page)
+
+    with open(output_file, 'wb') as f:
+        writer.write(f)
+
+    print(f"✓ Rotated {len(reader.pages)} pages")
+    print(f"✓ Saved to {output_file}")
+
+
+def compress_pdf():
+    pdf_file = input("Enter PDF file: ")
+
+    if not os.path.exists(pdf_file):
+        print("Error: File not found!")
+        return
+
+    output_file = input("Output filename: ")
+
+    if not output_file.endswith('.pdf'):
+        output_file += '.pdf'
+
+    print("\nCompressing PDF...")
+
+    reader = PdfReader(pdf_file)
+    writer = PdfWriter()
+
+    for page in reader.pages:
+        page.compress_content_streams()
+        writer.add_page(page)
+
+    with open(output_file, 'wb') as f:
+        writer.write(f)
+
+    original_size = os.path.getsize(pdf_file)
+    compressed_size = os.path.getsize(output_file)
+    reduction = ((original_size - compressed_size) / original_size) * 100
+
+    print(f"Original size: {original_size / 1024 / 1024:.1f} MB")
+    print(f"Compressed size: {compressed_size / 1024 / 1024:.1f} MB")
+    print(f"Compression ratio: {reduction:.0f}% smaller\n")
+    print(f"✓ Saved to {output_file}")
+
+
+while True:
+    print("\n1. Split PDF into individual pages")
+    print("2. Extract page range")
+    print("3. Rotate pages")
+    print("4. Compress PDF")
+    print("5. Exit\n")
+
+    choice = input("Choose option: ")
+    print()
+
+    if choice == '1':
+        split_pdf()
+    elif choice == '2':
+        extract_pages()
+    elif choice == '3':
+        rotate_pages()
+    elif choice == '4':
+        compress_pdf()
+    elif choice == '5':
+        print("Goodbye!")
+        break
+    else:
+        print("Invalid option!")
