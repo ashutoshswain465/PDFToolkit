@@ -1,148 +1,265 @@
-from PyPDF2 import PdfReader, PdfWriter
-import os
+from fasthtml.common import *
+from PyPDF2 import PdfReader, PdfWriter, PdfMerger
+from io import BytesIO
+import base64
 
-print("PDF Toolkit")
-print("===========\n")
+app, rt = fast_app()
 
 
-def split_pdf():
-    pdf_file = input("Enter PDF file: ")
+def pdf_to_download(pdf_bytes, filename):
+    b64 = base64.b64encode(pdf_bytes).decode()
+    return A(
+        f"⬇ Download {filename}",
+        href=f"data:application/pdf;base64,{b64}",
+        download=filename,
+        cls="button"
+    )
 
-    if not os.path.exists(pdf_file):
-        print("Error: File not found!")
-        return
 
-    reader = PdfReader(pdf_file)
-    total_pages = len(reader.pages)
+@rt('/')
+def get():
+    return Titled("📄 PDF Toolkit",
+                  Card(
+                      H2("Choose Operation:"),
+                      Div(
+                          A("Merge PDFs", href="/merge", cls="button"),
+                          A("Split PDF", href="/split", cls="button"),
+                          A("Extract Pages", href="/extract", cls="button"),
+                          A("Rotate Pages", href="/rotate", cls="button"),
+                          A("Compress PDF", href="/compress", cls="button"),
+                          style="display: grid; gap: 1rem;"
+                      )
+                  )
+                  )
 
-    print(f"\nSplitting PDF into pages...")
 
-    for page_num in range(total_pages):
+@rt('/merge')
+def get():
+    return Titled("Merge PDFs",
+                  Card(
+                      Form(
+                          Label("Upload PDF files to merge:"),
+                          Input(type="file", name="files", multiple=True, accept=".pdf", required=True),
+                          Button("Merge PDFs", type="submit"),
+                          method="post",
+                          enctype="multipart/form-data"
+                      )
+                  ),
+                  A("← Back to Home", href="/", cls="button secondary")
+                  )
+
+
+@rt('/merge')
+async def post(files: list[UploadFile]):
+    if not files or len(files) == 0:
+        return Card(P("No files uploaded"), A("← Try Again", href="/merge", cls="button"))
+
+    merger = PdfMerger()
+    total_pages = 0
+    file_list = []
+
+    for file in files:
+        content = await file.read()
+        pdf_file = BytesIO(content)
+        reader = PdfReader(pdf_file)
+        page_count = len(reader.pages)
+        total_pages += page_count
+        file_list.append(f"✓ {file.filename} ({page_count} pages)")
+        pdf_file.seek(0)
+        merger.append(pdf_file)
+
+    output = BytesIO()
+    merger.write(output)
+    merger.close()
+
+    return Titled("Merge Result",
+                  Card(
+                      H3("Uploaded Files:"),
+                      Ul(*[Li(f) for f in file_list]),
+                      P(Strong(f"✅ Successfully merged {len(files)} PDFs ({total_pages} total pages)")),
+                      pdf_to_download(output.getvalue(), "merged_document.pdf"),
+                  ),
+                  A("← Merge More", href="/merge", cls="button secondary")
+                  )
+
+
+@rt('/split')
+def get():
+    return Titled("Split PDF",
+                  Card(
+                      Form(
+                          Label("Upload PDF file:"),
+                          Input(type="file", name="file", accept=".pdf", required=True),
+                          Button("Split into Pages", type="submit"),
+                          method="post",
+                          enctype="multipart/form-data"
+                      )
+                  ),
+                  A("← Back to Home", href="/", cls="button secondary")
+                  )
+
+
+@rt('/split')
+async def post(file: UploadFile):
+    content = await file.read()
+    reader = PdfReader(BytesIO(content))
+
+    links = []
+    for page_num in range(len(reader.pages)):
         writer = PdfWriter()
         writer.add_page(reader.pages[page_num])
 
-        output_file = f"page_{page_num + 1:03d}.pdf"
-        with open(output_file, 'wb') as f:
-            writer.write(f)
+        output = BytesIO()
+        writer.write(output)
 
-        print(f"✓ Created {output_file}")
+        filename = f"page_{page_num + 1:03d}.pdf"
+        links.append(Li(pdf_to_download(output.getvalue(), filename)))
 
-    print(f"\nSuccessfully split into {total_pages} pages!")
+    return Titled("Split Result",
+                  Card(
+                      P(Strong(f"✅ Split into {len(reader.pages)} pages")),
+                      H3("Download Pages:"),
+                      Ul(*links)
+                  ),
+                  A("← Split Another", href="/split", cls="button secondary")
+                  )
 
 
-def extract_pages():
-    pdf_file = input("Enter PDF file: ")
+@rt('/extract')
+def get():
+    return Titled("Extract Pages",
+                  Card(
+                      Form(
+                          Label("Upload PDF file:"),
+                          Input(type="file", name="file", accept=".pdf", required=True),
+                          Div(
+                              Label("Start page:",
+                                    Input(type="number", name="start", value="1", min="1", required=True)),
+                              Label("End page:", Input(type="number", name="end", value="5", min="1", required=True)),
+                              style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;"
+                          ),
+                          Button("Extract Pages", type="submit"),
+                          method="post",
+                          enctype="multipart/form-data"
+                      )
+                  ),
+                  A("← Back to Home", href="/", cls="button secondary")
+                  )
 
-    if not os.path.exists(pdf_file):
-        print("Error: File not found!")
-        return
 
-    start_page = int(input("Start page: "))
-    end_page = int(input("End page: "))
-    output_file = input("Output filename: ")
-
-    if not output_file.endswith('.pdf'):
-        output_file += '.pdf'
-
-    reader = PdfReader(pdf_file)
+@rt('/extract')
+async def post(file: UploadFile, start: int, end: int):
+    content = await file.read()
+    reader = PdfReader(BytesIO(content))
     writer = PdfWriter()
 
-    print(f"\nExtracting pages {start_page}-{end_page}...")
-
-    for page_num in range(start_page - 1, end_page):
+    for page_num in range(start - 1, end):
         if page_num < len(reader.pages):
             writer.add_page(reader.pages[page_num])
 
-    with open(output_file, 'wb') as f:
-        writer.write(f)
+    output = BytesIO()
+    writer.write(output)
 
-    pages_extracted = end_page - start_page + 1
-    print(f"✓ Extracted {pages_extracted} pages to {output_file}")
+    pages_extracted = min(end, len(reader.pages)) - start + 1
+
+    return Titled("Extract Result",
+                  Card(
+                      P(Strong(f"✅ Extracted pages {start}-{end} ({pages_extracted} pages)")),
+                      pdf_to_download(output.getvalue(), "extracted_pages.pdf")
+                  ),
+                  A("← Extract More", href="/extract", cls="button secondary")
+                  )
 
 
-def rotate_pages():
-    pdf_file = input("Enter PDF file: ")
+@rt('/rotate')
+def get():
+    return Titled("Rotate Pages",
+                  Card(
+                      Form(
+                          Label("Upload PDF file:"),
+                          Input(type="file", name="file", accept=".pdf", required=True),
+                          Label("Rotation angle:",
+                                Select(
+                                    Option("90°", value="90"),
+                                    Option("180°", value="180"),
+                                    Option("270°", value="270"),
+                                    name="angle"
+                                )
+                                ),
+                          Button("Rotate All Pages", type="submit"),
+                          method="post",
+                          enctype="multipart/form-data"
+                      )
+                  ),
+                  A("← Back to Home", href="/", cls="button secondary")
+                  )
 
-    if not os.path.exists(pdf_file):
-        print("Error: File not found!")
-        return
 
-    angle = int(input("Rotation angle (90, 180, 270): "))
-    output_file = input("Output filename: ")
-
-    if not output_file.endswith('.pdf'):
-        output_file += '.pdf'
-
-    reader = PdfReader(pdf_file)
+@rt('/rotate')
+async def post(file: UploadFile, angle: int):
+    content = await file.read()
+    reader = PdfReader(BytesIO(content))
     writer = PdfWriter()
-
-    print(f"\nRotating all pages by {angle} degrees...")
 
     for page in reader.pages:
         page.rotate(angle)
         writer.add_page(page)
 
-    with open(output_file, 'wb') as f:
-        writer.write(f)
+    output = BytesIO()
+    writer.write(output)
 
-    print(f"✓ Rotated {len(reader.pages)} pages")
-    print(f"✓ Saved to {output_file}")
+    return Titled("Rotate Result",
+                  Card(
+                      P(Strong(f"✅ Rotated {len(reader.pages)} pages by {angle} degrees")),
+                      pdf_to_download(output.getvalue(), "rotated_document.pdf")
+                  ),
+                  A("← Rotate More", href="/rotate", cls="button secondary")
+                  )
 
 
-def compress_pdf():
-    pdf_file = input("Enter PDF file: ")
+@rt('/compress')
+def get():
+    return Titled("Compress PDF",
+                  Card(
+                      Form(
+                          Label("Upload PDF file:"),
+                          Input(type="file", name="file", accept=".pdf", required=True),
+                          Button("Compress PDF", type="submit"),
+                          method="post",
+                          enctype="multipart/form-data"
+                      )
+                  ),
+                  A("← Back to Home", href="/", cls="button secondary")
+                  )
 
-    if not os.path.exists(pdf_file):
-        print("Error: File not found!")
-        return
 
-    output_file = input("Output filename: ")
+@rt('/compress')
+async def post(file: UploadFile):
+    content = await file.read()
+    original_size = len(content)
 
-    if not output_file.endswith('.pdf'):
-        output_file += '.pdf'
-
-    print("\nCompressing PDF...")
-
-    reader = PdfReader(pdf_file)
+    reader = PdfReader(BytesIO(content))
     writer = PdfWriter()
 
     for page in reader.pages:
         page.compress_content_streams()
         writer.add_page(page)
 
-    with open(output_file, 'wb') as f:
-        writer.write(f)
+    output = BytesIO()
+    writer.write(output)
 
-    original_size = os.path.getsize(pdf_file)
-    compressed_size = os.path.getsize(output_file)
+    compressed_size = len(output.getvalue())
     reduction = ((original_size - compressed_size) / original_size) * 100
 
-    print(f"Original size: {original_size / 1024 / 1024:.1f} MB")
-    print(f"Compressed size: {compressed_size / 1024 / 1024:.1f} MB")
-    print(f"Compression ratio: {reduction:.0f}% smaller\n")
-    print(f"✓ Saved to {output_file}")
+    return Titled("Compress Result",
+                  Card(
+                      P(f"Original size: {original_size / 1024 / 1024:.2f} MB"),
+                      P(f"Compressed size: {compressed_size / 1024 / 1024:.2f} MB"),
+                      P(Strong(f"✅ Reduced by {reduction:.0f}%")),
+                      pdf_to_download(output.getvalue(), "compressed_document.pdf")
+                  ),
+                  A("← Compress More", href="/compress", cls="button secondary")
+                  )
 
 
-while True:
-    print("\n1. Split PDF into individual pages")
-    print("2. Extract page range")
-    print("3. Rotate pages")
-    print("4. Compress PDF")
-    print("5. Exit\n")
-
-    choice = input("Choose option: ")
-    print()
-
-    if choice == '1':
-        split_pdf()
-    elif choice == '2':
-        extract_pages()
-    elif choice == '3':
-        rotate_pages()
-    elif choice == '4':
-        compress_pdf()
-    elif choice == '5':
-        print("Goodbye!")
-        break
-    else:
-        print("Invalid option!")
+serve()
